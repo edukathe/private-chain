@@ -64,6 +64,23 @@ class Blockchain {
     _addBlock(block) {
         let self = this;
         return new Promise(async (resolve, reject) => {
+            try {
+                const newHeight = self.height + 1;
+                block.height = newHeight;
+                block.timeStamp = new Date().getTime().toString().slice(0,-3);
+                if (self.chain.length > 0) {
+                    block.previousblockhash = self.chain[self.chain.length - 1].hash
+                }
+                block.hash = SHA256(JSON.stringify(block)).toString();
+                self.chain.push(block)
+                self.height = newHeight;
+                resolve(block)
+            } catch (error) {
+                console.error('ADD BLOCK ERR', error);
+                reject(error);
+            }
+
+            
            
         });
     }
@@ -78,7 +95,7 @@ class Blockchain {
      */
     requestMessageOwnershipVerification(address) {
         return new Promise((resolve) => {
-            
+            resolve(`${address}:${new Date().getTime().toString().slice(0,-3)}:starRegistry`)
         });
     }
 
@@ -102,6 +119,30 @@ class Blockchain {
     submitStar(address, message, signature, star) {
         let self = this;
         return new Promise(async (resolve, reject) => {
+            try {
+                const timeSent = parseInt(message.split(':')[1]);
+                const currentTime = parseInt(new Date().getTime().toString().slice(0, -3));
+    
+                if (currentTime - timeSent >= 300000) {
+                    reject(new Error('It has been more than 5 minutes'))
+                }
+                console.info('message', message);
+                console.info('address', address);
+                console.info('signature', signature);
+    
+                const valid = bitcoinMessage.verify(message, address, signature.toString('base64'))
+    
+                if (!valid) {
+                    reject(new Error('The message is not valid'))
+                }
+    
+                const newBlock = new BlockClass.Block({...star, ownerAddress: address });
+                self._addBlock(newBlock);
+                resolve(newBlock) 
+            } catch (err) {
+                console.error('SUBMIT STAR ERR', err);
+                reject(err);
+            }
             
         });
     }
@@ -115,7 +156,16 @@ class Blockchain {
     getBlockByHash(hash) {
         let self = this;
         return new Promise((resolve, reject) => {
-           
+           try {
+            const foundBlock = self.chain.find(block => block.hash === hash);
+            if (!foundBlock) {
+                throw new Error('Block not found');
+            }
+            resolve(foundBlock);
+           } catch (err) {
+               console.error('GET BLOCK BY HASH ERR', err);
+               reject(err);
+           }
         });
     }
 
@@ -146,7 +196,13 @@ class Blockchain {
         let self = this;
         let stars = [];
         return new Promise((resolve, reject) => {
-            
+            try {
+                stars = self.chain.filter(block => block.getBData().ownerAddress === address).map(block => block.getBData())
+                resolve(stars);
+            } catch (err) {
+                console.error('GET STARS BY WALLET ERR', err);
+                reject(err);
+            }
         });
     }
 
@@ -160,7 +216,21 @@ class Blockchain {
         let self = this;
         let errorLog = [];
         return new Promise(async (resolve, reject) => {
-            
+            try {
+                errorLog = self.chain.map((block, i) => {
+                    if(i === 0) {
+                        return { hash: block.hash };
+                    } 
+                    const isValid = block.validate();
+                    const isInChain = block.previousBlockHash === self.chain[i-1].hash;
+    
+                    return { hash: block.hash, hasError: !isValid || !isInChain, isValid, isInChain }
+                })
+                resolve(errorLog);
+            } catch (err) {
+                console.error('VALIDATE CHAIN ERR', err);
+                reject(err);
+            } 
         });
     }
 
