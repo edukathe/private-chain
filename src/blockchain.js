@@ -68,12 +68,17 @@ class Blockchain {
                 const newHeight = self.height + 1;
                 block.height = newHeight;
                 block.timeStamp = new Date().getTime().toString().slice(0,-3);
-                if (self.chain.length > 0) {
-                    block.previousblockhash = self.chain[self.chain.length - 1].hash
+                if (self.height > -1) {
+                    block.previousBlockHash = self.chain[self.height].hash
                 }
-                block.hash = SHA256(JSON.stringify(block)).toString();
+                const { hash, ...restBlock } = block;
+                block.hash = SHA256(JSON.stringify(restBlock)).toString();
                 self.chain.push(block)
                 self.height = newHeight;
+                const { isChainValid } = await self.validateChain();
+                if (!isChainValid) {
+                    throw new Error('Invalid Chain');
+                }
                 resolve(block)
             } catch (error) {
                 console.error('ADD BLOCK ERR', error);
@@ -126,9 +131,6 @@ class Blockchain {
                 if (currentTime - timeSent >= 300000) {
                     reject(new Error('It has been more than 5 minutes'))
                 }
-                console.info('message', message);
-                console.info('address', address);
-                console.info('signature', signature);
     
                 const valid = bitcoinMessage.verify(message, address, signature.toString('base64'))
     
@@ -215,18 +217,25 @@ class Blockchain {
     validateChain() {
         let self = this;
         let errorLog = [];
+        let isChainValid = true;
         return new Promise(async (resolve, reject) => {
             try {
-                errorLog = self.chain.map((block, i) => {
+
+                for (let i = 0; i <= self.height; i++) {
                     if(i === 0) {
-                        return { hash: block.hash };
-                    } 
-                    const isValid = block.validate();
-                    const isInChain = block.previousBlockHash === self.chain[i-1].hash;
-    
-                    return { hash: block.hash, hasError: !isValid || !isInChain, isValid, isInChain }
-                })
-                resolve(errorLog);
+                         errorLog.push({ hash: self.chain[i].hash });
+                    } else {
+                        const isValid = await self.chain[i].validate();
+                        const isInChain = self.chain[i].previousBlockHash === self.chain[i-1].hash;
+                        if (!isValid || !isInChain) {
+                            isChainValid = false;
+                        }
+                        errorLog.push({ hash: self.chain[i].hash, hasError: !isValid || !isInChain, isValid, isInChain })
+                    }
+                }
+
+                
+                resolve({ isChainValid, blocksStatus: errorLog });
             } catch (err) {
                 console.error('VALIDATE CHAIN ERR', err);
                 reject(err);
